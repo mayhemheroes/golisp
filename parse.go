@@ -38,12 +38,19 @@ const (
 )
 
 type Node struct {
-	t   NodeType
-	v   interface{}
-	e   *Env
-	car *Node
-	cdr *Node
+	t    NodeType
+	iVal int64
+	fVal float64
+	v    interface{}
+	e    *Env
+	car  *Node
+	cdr  *Node
 }
+
+var (
+	nodeNil = &Node{t: NodeNil}
+	nodeT   = &Node{t: NodeT}
+)
 
 func NewParser(r io.Reader) *Parser {
 	return &Parser{
@@ -255,25 +262,23 @@ func (p *Parser) ParsePrimitive() (*Node, error) {
 	if s == "nil" {
 		return &Node{
 			t: NodeNil,
-			v: nil,
 		}, nil
 	}
 	if s == "t" {
 		return &Node{
 			t: NodeT,
-			v: true,
 		}, nil
 	}
 	if i, err := strconv.ParseInt(s, 10, 64); err == nil {
 		return &Node{
-			t: NodeInt,
-			v: i,
+			t:    NodeInt,
+			iVal: i,
 		}, nil
 	}
 	if f, err := strconv.ParseFloat(s, 64); err == nil {
 		return &Node{
-			t: NodeDouble,
-			v: f,
+			t:    NodeDouble,
+			fVal: f,
 		}, nil
 	}
 	return &Node{
@@ -316,6 +321,17 @@ func (p *Parser) ParseAny(bq bool) (*Node, error) {
 	return nil, fmt.Errorf("invalid token: '%c' (%d)", r, p.Pos())
 }
 
+func (n *Node) Value() interface{} {
+	switch n.t {
+	case NodeInt:
+		return n.iVal
+	case NodeDouble:
+		return n.fVal
+	default:
+		return n.v
+	}
+}
+
 func (n *Node) String() string {
 	if n == nil {
 		return "nil"
@@ -353,6 +369,10 @@ func (n *Node) String() string {
 		fmt.Fprintf(&buf, "`%v", n.car)
 	case NodeString:
 		fmt.Fprintf(&buf, "%q", n.v)
+	case NodeInt:
+		fmt.Fprint(&buf, n.iVal)
+	case NodeDouble:
+		fmt.Fprint(&buf, n.fVal)
 	case NodeLambda:
 		fmt.Fprintf(&buf, "(lambda %v %v)", n.car, n.cdr.car)
 	case NodeEnv:

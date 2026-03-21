@@ -113,12 +113,30 @@ func NewEnv(env *Env) *Env {
 		out = env.out
 	}
 	return &Env{
-		vars: make(map[string]*Node),
-		fncs: make(map[string]*Node),
-		mcrs: make(map[string]*Node),
-		env:  env,
-		out:  out,
+		env: env,
+		out: out,
 	}
+}
+
+func (e *Env) setVar(name string, n *Node) {
+	if e.vars == nil {
+		e.vars = make(map[string]*Node)
+	}
+	e.vars[name] = n
+}
+
+func (e *Env) setFnc(name string, n *Node) {
+	if e.fncs == nil {
+		e.fncs = make(map[string]*Node)
+	}
+	e.fncs[name] = n
+}
+
+func (e *Env) setMcr(name string, n *Node) {
+	if e.mcrs == nil {
+		e.mcrs = make(map[string]*Node)
+	}
+	e.mcrs[name] = n
 }
 
 func (e *Env) SetOut(o io.Writer) {
@@ -293,7 +311,7 @@ func call(env *Env, node *Node) (*Node, error) {
 			if err != nil {
 				return nil, err
 			}
-			scope.vars[name] = vv
+			scope.setVar(name, vv)
 			arg = arg.cdr
 			val = val.cdr
 		}
@@ -353,7 +371,6 @@ func eval(env *Env, node *Node) (*Node, error) {
 		if node.car == nil {
 			return &Node{
 				t: NodeNil,
-				v: nil,
 			}, nil
 		}
 		if node.car.t == NodeIdent {
@@ -413,7 +430,7 @@ func doPrin1(env *Env, node *Node) (*Node, error) {
 	if node.car.t == NodeNil {
 		fmt.Fprint(env.out, "nil")
 	} else {
-		fmt.Fprint(env.out, node.car.v)
+		fmt.Fprint(env.out, node.car.Value())
 	}
 	return node.car, nil
 }
@@ -431,7 +448,7 @@ func doPrint(env *Env, node *Node) (*Node, error) {
 	} else if node.car.t == NodeCell {
 		fmt.Fprintln(env.out, node.car)
 	} else {
-		fmt.Fprintln(env.out, node.car.v)
+		fmt.Fprintln(env.out, node.car.Value())
 	}
 	return node.car, nil
 }
@@ -449,7 +466,7 @@ func doPrinc(env *Env, node *Node) (*Node, error) {
 	} else if node.car.t == NodeCell {
 		fmt.Fprint(env.out, node.car)
 	} else {
-		fmt.Fprint(env.out, node.car.v)
+		fmt.Fprint(env.out, node.car.Value())
 	}
 	return node.car, nil
 }
@@ -468,23 +485,23 @@ func doDotimes(env *Env, node *Node) (*Node, error) {
 	if err != nil {
 		return nil, err
 	}
-	c := count.v.(int64)
+	c := count.iVal
 
 	scope := NewEnv(env)
 	vv := &Node{
-		t: NodeInt,
-		v: int64(0),
+		t:    NodeInt,
+		iVal: 0,
 	}
-	scope.vars[v] = vv
+	scope.setVar(v, vv)
 
 	cond := node.cdr
 	var i int64
-	for i = int64(0); i < c; i++ {
+	for i = 0; i < c; i++ {
 		vv = &Node{
-			t: NodeInt,
-			v: int64(i),
+			t:    NodeInt,
+			iVal: i,
 		}
-		scope.vars[v] = vv
+		scope.setVar(v, vv)
 		if cond != nil {
 			curr := cond
 			for curr != nil {
@@ -497,10 +514,10 @@ func doDotimes(env *Env, node *Node) (*Node, error) {
 		}
 	}
 	vv = &Node{
-		t: NodeInt,
-		v: int64(i),
+		t:    NodeInt,
+		iVal: i,
 	}
-	scope.vars[v] = vv
+	scope.setVar(v, vv)
 
 	if node.car.cdr.cdr != nil {
 		return eval(scope, node.car.cdr.cdr.car)
@@ -527,9 +544,9 @@ func doLet(env *Env, node *Node) (*Node, error) {
 	curr := node.car
 	for curr != nil {
 		if curr.car.cdr == nil {
-			scope.vars[curr.car.v.(string)] = &Node{
+			scope.setVar(curr.car.v.(string), &Node{
 				t: NodeNil,
-			}
+			})
 		} else {
 			vv, err = eval(env, curr.car.cdr.car)
 			if err != nil {
@@ -547,7 +564,7 @@ func doLet(env *Env, node *Node) (*Node, error) {
 				fld := obj.v.(reflect.Value).Elem().FieldByName(curr.car.car.cdr.cdr.car.v.(string))
 				fld.Set(vv.car.v.(reflect.Value))
 			case NodeIdent:
-				scope.vars[curr.car.car.v.(string)] = vv
+				scope.setVar(curr.car.car.v.(string), vv)
 			}
 		}
 		curr = curr.cdr
@@ -580,15 +597,15 @@ func doLetStar(env *Env, node *Node) (*Node, error) {
 	curr := node.car
 	for curr != nil {
 		if curr.car.cdr == nil {
-			scope.vars[curr.car.v.(string)] = &Node{
+			scope.setVar(curr.car.v.(string), &Node{
 				t: NodeNil,
-			}
+			})
 		} else {
 			vv, err = eval(env, curr.car.cdr.car)
 			if err != nil {
 				return nil, err
 			}
-			scope.vars[curr.car.car.v.(string)] = vv
+			scope.setVar(curr.car.car.v.(string), vv)
 		}
 		env = scope
 		scope = NewEnv(env)
@@ -627,13 +644,13 @@ func doSetq(env *Env, node *Node) (*Node, error) {
 		for e != nil {
 			_, ok := e.vars[name]
 			if ok {
-				e.vars[name] = ret
+				e.setVar(name, ret)
 				break
 			}
 			e = e.env
 		}
 		if e == nil {
-			env.vars[name] = ret
+			env.setVar(name, ret)
 		}
 		curr = curr.cdr.cdr
 	}
@@ -645,26 +662,21 @@ func doPlusOne(env *Env, node *Node) (*Node, error) {
 		return nil, errors.New("invalid arguments for 1+")
 	}
 
-	ret := &Node{
-		t: node.car.t,
-		v: node.car.v,
-	}
-	switch ret.t {
+	switch node.car.t {
 	case NodeInt:
-		ret.v = ret.v.(int64) + 1
+		return &Node{t: NodeInt, iVal: node.car.iVal + 1}, nil
 	case NodeDouble:
-		ret.v = ret.v.(float64) + 1
+		return &Node{t: NodeDouble, fVal: node.car.fVal + 1}, nil
 	default:
 		return nil, errors.New("invalid arguments for 1+")
 	}
-	return ret, nil
 }
 
 func doPlus(env *Env, node *Node) (*Node, error) {
 	if node.car == nil || node.car.t == NodeNil {
 		return &Node{
-			t: NodeInt,
-			v: int64(0),
+			t:    NodeInt,
+			iVal: 0,
 		}, nil
 	}
 	if node.car.t != NodeInt && node.car.t != NodeDouble {
@@ -672,8 +684,9 @@ func doPlus(env *Env, node *Node) (*Node, error) {
 	}
 
 	ret := &Node{
-		t: node.car.t,
-		v: node.car.v,
+		t:    node.car.t,
+		iVal: node.car.iVal,
+		fVal: node.car.fVal,
 	}
 	curr := node.cdr
 	for curr != nil && curr.car != nil {
@@ -681,9 +694,9 @@ func doPlus(env *Env, node *Node) (*Node, error) {
 		case NodeInt:
 			switch curr.car.t {
 			case NodeInt:
-				ret.v = ret.v.(int64) + curr.car.v.(int64)
+				ret.iVal += curr.car.iVal
 			case NodeDouble:
-				ret.v = float64(ret.v.(int64)) + curr.car.v.(float64)
+				ret.fVal = float64(ret.iVal) + curr.car.fVal
 				ret.t = NodeDouble
 			case NodeNil:
 			default:
@@ -692,9 +705,9 @@ func doPlus(env *Env, node *Node) (*Node, error) {
 		case NodeDouble:
 			switch curr.car.t {
 			case NodeInt:
-				ret.v = ret.v.(float64) + float64(curr.car.v.(int64))
+				ret.fVal += float64(curr.car.iVal)
 			case NodeDouble:
-				ret.v = ret.v.(float64) + curr.car.v.(float64)
+				ret.fVal += curr.car.fVal
 			case NodeNil:
 			default:
 				return nil, errors.New("invalid arguments for +")
@@ -710,19 +723,14 @@ func doMinusOne(env *Env, node *Node) (*Node, error) {
 		return nil, errors.New("invalid arguments for 1-")
 	}
 
-	ret := &Node{
-		t: node.car.t,
-		v: node.car.v,
-	}
-	switch ret.t {
+	switch node.car.t {
 	case NodeInt:
-		ret.v = ret.v.(int64) - 1
+		return &Node{t: NodeInt, iVal: node.car.iVal - 1}, nil
 	case NodeDouble:
-		ret.v = ret.v.(float64) - 1
+		return &Node{t: NodeDouble, fVal: node.car.fVal - 1}, nil
 	default:
 		return nil, errors.New("invalid arguments for 1-")
 	}
-	return ret, nil
 }
 
 func doMinus(env *Env, node *Node) (*Node, error) {
@@ -734,13 +742,14 @@ func doMinus(env *Env, node *Node) (*Node, error) {
 	curr := node
 	if curr.cdr == nil {
 		ret = &Node{
-			t: NodeInt,
-			v: int64(0),
+			t:    NodeInt,
+			iVal: 0,
 		}
 	} else {
 		ret = &Node{
-			t: node.car.t,
-			v: node.car.v,
+			t:    node.car.t,
+			iVal: node.car.iVal,
+			fVal: node.car.fVal,
 		}
 		curr = curr.cdr
 	}
@@ -749,9 +758,9 @@ func doMinus(env *Env, node *Node) (*Node, error) {
 		case NodeInt:
 			switch curr.car.t {
 			case NodeInt:
-				ret.v = ret.v.(int64) - curr.car.v.(int64)
+				ret.iVal -= curr.car.iVal
 			case NodeDouble:
-				ret.v = float64(ret.v.(int64)) - curr.car.v.(float64)
+				ret.fVal = float64(ret.iVal) - curr.car.fVal
 				ret.t = NodeDouble
 			default:
 				return nil, errors.New("invalid arguments for -")
@@ -759,9 +768,9 @@ func doMinus(env *Env, node *Node) (*Node, error) {
 		case NodeDouble:
 			switch curr.car.t {
 			case NodeInt:
-				ret.v = ret.v.(float64) - float64(curr.car.v.(int64))
+				ret.fVal -= float64(curr.car.iVal)
 			case NodeDouble:
-				ret.v = ret.v.(float64) - curr.car.v.(float64)
+				ret.fVal -= curr.car.fVal
 			default:
 				return nil, errors.New("invalid arguments for -")
 			}
@@ -774,8 +783,8 @@ func doMinus(env *Env, node *Node) (*Node, error) {
 func doMul(env *Env, node *Node) (*Node, error) {
 	if node.car == nil {
 		return &Node{
-			t: NodeInt,
-			v: int64(1),
+			t:    NodeInt,
+			iVal: 1,
 		}, nil
 	}
 	if node.car.t != NodeInt && node.car.t != NodeDouble {
@@ -783,8 +792,9 @@ func doMul(env *Env, node *Node) (*Node, error) {
 	}
 
 	ret := &Node{
-		t: node.car.t,
-		v: node.car.v,
+		t:    node.car.t,
+		iVal: node.car.iVal,
+		fVal: node.car.fVal,
 	}
 	curr := node.cdr
 	for curr != nil {
@@ -792,9 +802,9 @@ func doMul(env *Env, node *Node) (*Node, error) {
 		case NodeInt:
 			switch curr.car.t {
 			case NodeInt:
-				ret.v = ret.v.(int64) * curr.car.v.(int64)
+				ret.iVal *= curr.car.iVal
 			case NodeDouble:
-				ret.v = float64(ret.v.(int64)) * curr.car.v.(float64)
+				ret.fVal = float64(ret.iVal) * curr.car.fVal
 				ret.t = NodeDouble
 			default:
 				return nil, errors.New("invalid arguments for *")
@@ -802,9 +812,9 @@ func doMul(env *Env, node *Node) (*Node, error) {
 		case NodeDouble:
 			switch curr.car.t {
 			case NodeInt:
-				ret.v = ret.v.(float64) * float64(curr.car.v.(int64))
+				ret.fVal *= float64(curr.car.iVal)
 			case NodeDouble:
-				ret.v = ret.v.(float64) * curr.car.v.(float64)
+				ret.fVal *= curr.car.fVal
 			default:
 				return nil, errors.New("invalid arguments for *")
 			}
@@ -822,13 +832,13 @@ func doDiv(env *Env, node *Node) (*Node, error) {
 		switch node.car.t {
 		case NodeInt:
 			return &Node{
-				t: NodeInt,
-				v: 1 / node.car.v.(int64),
+				t:    NodeInt,
+				iVal: 1 / node.car.iVal,
 			}, nil
 		case NodeDouble:
 			return &Node{
-				t: NodeDouble,
-				v: 1.0 / node.car.v.(float64),
+				t:    NodeDouble,
+				fVal: 1.0 / node.car.fVal,
 			}, nil
 		default:
 			return nil, errors.New("invalid arguments for /")
@@ -836,8 +846,9 @@ func doDiv(env *Env, node *Node) (*Node, error) {
 	}
 
 	ret := &Node{
-		t: node.car.t,
-		v: node.car.v,
+		t:    node.car.t,
+		iVal: node.car.iVal,
+		fVal: node.car.fVal,
 	}
 	curr := node.cdr
 	for curr != nil {
@@ -845,9 +856,9 @@ func doDiv(env *Env, node *Node) (*Node, error) {
 		case NodeInt:
 			switch curr.car.t {
 			case NodeInt:
-				ret.v = ret.v.(int64) / curr.car.v.(int64)
+				ret.iVal /= curr.car.iVal
 			case NodeDouble:
-				ret.v = float64(ret.v.(int64)) / curr.car.v.(float64)
+				ret.fVal = float64(ret.iVal) / curr.car.fVal
 				ret.t = NodeDouble
 			default:
 				return nil, errors.New("invalid arguments for /")
@@ -855,9 +866,9 @@ func doDiv(env *Env, node *Node) (*Node, error) {
 		case NodeDouble:
 			switch curr.car.t {
 			case NodeInt:
-				ret.v = ret.v.(float64) / float64(curr.car.v.(int64))
+				ret.fVal /= float64(curr.car.iVal)
 			case NodeDouble:
-				ret.v = ret.v.(float64) / curr.car.v.(float64)
+				ret.fVal /= curr.car.fVal
 			default:
 				return nil, errors.New("invalid arguments for /")
 			}
@@ -874,39 +885,34 @@ func doEqual(env *Env, node *Node) (*Node, error) {
 	var b bool
 	switch lhs.t {
 	case NodeInt:
-		f1 := lhs.v.(int64)
 		switch rhs.t {
 		case NodeInt:
-			b = f1 == rhs.v.(int64)
+			b = lhs.iVal == rhs.iVal
 		case NodeDouble:
-			b = f1 == int64(rhs.v.(float64))
+			b = lhs.iVal == int64(rhs.fVal)
 		}
 	case NodeDouble:
-		f1 := lhs.v.(float64)
 		switch rhs.t {
 		case NodeInt:
-			b = f1 == float64(rhs.v.(int64))
+			b = lhs.fVal == float64(rhs.iVal)
 		case NodeDouble:
-			b = f1 == rhs.v.(float64)
+			b = lhs.fVal == rhs.fVal
 		}
 	case NodeString:
-		f1 := lhs.v.(string)
 		switch rhs.t {
 		case NodeString:
-			b = f1 == rhs.v.(string)
+			b = lhs.v.(string) == rhs.v.(string)
 		}
 	}
 
 	if b {
 		return &Node{
 			t: NodeT,
-			v: true,
 		}, nil
 	}
 
 	return &Node{
 		t: NodeNil,
-		v: nil,
 	}, nil
 }
 
@@ -917,27 +923,25 @@ func doGt(env *Env, node *Node) (*Node, error) {
 	var f1, f2 float64
 	switch lhs.t {
 	case NodeInt:
-		f1 = float64(lhs.v.(int64))
+		f1 = float64(lhs.iVal)
 	case NodeDouble:
-		f1 = lhs.v.(float64)
+		f1 = lhs.fVal
 	}
 	switch rhs.t {
 	case NodeInt:
-		f2 = float64(rhs.v.(int64))
+		f2 = float64(rhs.iVal)
 	case NodeDouble:
-		f2 = rhs.v.(float64)
+		f2 = rhs.fVal
 	}
 
 	if f1 > f2 {
 		return &Node{
 			t: NodeT,
-			v: true,
 		}, nil
 	}
 
 	return &Node{
 		t: NodeNil,
-		v: nil,
 	}, nil
 }
 
@@ -948,27 +952,25 @@ func doGe(env *Env, node *Node) (*Node, error) {
 	var f1, f2 float64
 	switch lhs.t {
 	case NodeInt:
-		f1 = float64(lhs.v.(int64))
+		f1 = float64(lhs.iVal)
 	case NodeDouble:
-		f1 = lhs.v.(float64)
+		f1 = lhs.fVal
 	}
 	switch rhs.t {
 	case NodeInt:
-		f2 = float64(rhs.v.(int64))
+		f2 = float64(rhs.iVal)
 	case NodeDouble:
-		f2 = rhs.v.(float64)
+		f2 = rhs.fVal
 	}
 
 	if f1 >= f2 {
 		return &Node{
 			t: NodeT,
-			v: true,
 		}, nil
 	}
 
 	return &Node{
 		t: NodeNil,
-		v: nil,
 	}, nil
 }
 
@@ -979,27 +981,25 @@ func doLt(env *Env, node *Node) (*Node, error) {
 	var f1, f2 float64
 	switch lhs.t {
 	case NodeInt:
-		f1 = float64(lhs.v.(int64))
+		f1 = float64(lhs.iVal)
 	case NodeDouble:
-		f1 = lhs.v.(float64)
+		f1 = lhs.fVal
 	}
 	switch rhs.t {
 	case NodeInt:
-		f2 = float64(rhs.v.(int64))
+		f2 = float64(rhs.iVal)
 	case NodeDouble:
-		f2 = rhs.v.(float64)
+		f2 = rhs.fVal
 	}
 
 	if f1 < f2 {
 		return &Node{
 			t: NodeT,
-			v: true,
 		}, nil
 	}
 
 	return &Node{
 		t: NodeNil,
-		v: nil,
 	}, nil
 }
 
@@ -1010,27 +1010,25 @@ func doLe(env *Env, node *Node) (*Node, error) {
 	var f1, f2 float64
 	switch lhs.t {
 	case NodeInt:
-		f1 = float64(lhs.v.(int64))
+		f1 = float64(lhs.iVal)
 	case NodeDouble:
-		f1 = lhs.v.(float64)
+		f1 = lhs.fVal
 	}
 	switch rhs.t {
 	case NodeInt:
-		f2 = float64(rhs.v.(int64))
+		f2 = float64(rhs.iVal)
 	case NodeDouble:
-		f2 = rhs.v.(float64)
+		f2 = rhs.fVal
 	}
 
 	if f1 <= f2 {
 		return &Node{
 			t: NodeT,
-			v: true,
 		}, nil
 	}
 
 	return &Node{
 		t: NodeNil,
-		v: nil,
 	}, nil
 }
 func doIf(env *Env, node *Node) (*Node, error) {
@@ -1043,17 +1041,7 @@ func doIf(env *Env, node *Node) (*Node, error) {
 		return nil, err
 	}
 
-	var b bool
-	switch v.t {
-	case NodeInt:
-		b = v.v.(int64) != 0
-	case NodeDouble:
-		b = v.v.(float64) != 0
-	case NodeT:
-		b = true
-	}
-
-	if b {
+	if isTruthy(v) {
 		v, err = eval(env, node.cdr.car)
 		if err != nil {
 			return nil, err
@@ -1071,7 +1059,6 @@ func doNot(env *Env, node *Node) (*Node, error) {
 	if node.car == nil || node.car.t == NodeNil {
 		return &Node{
 			t: NodeT,
-			v: true,
 		}, nil
 	}
 	return &Node{
@@ -1086,29 +1073,29 @@ func doMod(env *Env, node *Node) (*Node, error) {
 	var i1, i2 int64
 	switch lhs.t {
 	case NodeInt:
-		i1 = lhs.v.(int64)
+		i1 = lhs.iVal
 	case NodeDouble:
-		i1 = int64(lhs.v.(float64))
+		i1 = int64(lhs.fVal)
 	}
 	switch rhs.t {
 	case NodeInt:
-		i2 = rhs.v.(int64)
+		i2 = rhs.iVal
 	case NodeDouble:
-		i2 = int64(rhs.v.(float64))
+		i2 = int64(rhs.fVal)
 	}
 
 	return &Node{
-		t: NodeInt,
-		v: i1 % i2,
+		t:    NodeInt,
+		iVal: i1 % i2,
 	}, nil
 }
 
 func isTruthy(n *Node) bool {
 	switch n.t {
 	case NodeInt:
-		return n.v.(int64) != 0
+		return n.iVal != 0
 	case NodeDouble:
-		return n.v.(float64) != 0
+		return n.fVal != 0
 	case NodeT:
 		return true
 	}
@@ -1130,7 +1117,7 @@ func doAnd(env *Env, node *Node) (*Node, error) {
 	if !isTruthy(rhs) {
 		return &Node{t: NodeNil}, nil
 	}
-	return &Node{t: NodeT, v: true}, nil
+	return &Node{t: NodeT}, nil
 }
 
 func doOr(env *Env, node *Node) (*Node, error) {
@@ -1139,14 +1126,14 @@ func doOr(env *Env, node *Node) (*Node, error) {
 		return nil, err
 	}
 	if isTruthy(lhs) {
-		return &Node{t: NodeT, v: true}, nil
+		return &Node{t: NodeT}, nil
 	}
 	rhs, err := eval(env, node.cdr.car)
 	if err != nil {
 		return nil, err
 	}
 	if isTruthy(rhs) {
-		return &Node{t: NodeT, v: true}, nil
+		return &Node{t: NodeT}, nil
 	}
 	return &Node{t: NodeNil}, nil
 }
@@ -1167,16 +1154,7 @@ func doCond(env *Env, node *Node) (*Node, error) {
 		if err != nil {
 			return nil, err
 		}
-		var b bool
-		switch ret.t {
-		case NodeInt:
-			b = ret.v.(int64) != 0
-		case NodeDouble:
-			b = ret.v.(float64) != 0
-		case NodeT:
-			b = true
-		}
-		if b {
+		if isTruthy(ret) {
 			if curr.car.cdr != nil {
 				curr = curr.car.cdr
 				for curr != nil {
@@ -1189,7 +1167,6 @@ func doCond(env *Env, node *Node) (*Node, error) {
 			} else {
 				ret = &Node{
 					t: NodeT,
-					v: true,
 				}
 			}
 			break
@@ -1321,16 +1298,16 @@ func doFloat(env *Env, node *Node) (*Node, error) {
 	var ret float64
 	switch node.car.t {
 	case NodeInt:
-		ret = float64(node.car.v.(int64))
+		ret = float64(node.car.iVal)
 	case NodeDouble:
-		ret = node.car.v.(float64)
+		ret = node.car.fVal
 	default:
 		return nil, errors.New("invalid arguments for float")
 	}
 
 	return &Node{
-		t: NodeDouble,
-		v: ret,
+		t:    NodeDouble,
+		fVal: ret,
 	}, nil
 }
 
@@ -1357,7 +1334,6 @@ func doWhile(env *Env, node *Node) (*Node, error) {
 
 	return &Node{
 		t: NodeNil,
-		v: nil,
 	}, nil
 }
 
@@ -1374,7 +1350,7 @@ func doDefun(env *Env, node *Node) (*Node, error) {
 		global = global.env
 	}
 
-	global.fncs[node.car.v.(string)] = v
+	global.setFnc(node.car.v.(string), v)
 	return v, nil
 }
 
@@ -1414,8 +1390,8 @@ func doLength(env *Env, node *Node) (*Node, error) {
 		l = 0
 	}
 	return &Node{
-		t: NodeInt,
-		v: l,
+		t:    NodeInt,
+		iVal: l,
 	}, nil
 }
 
@@ -1435,7 +1411,6 @@ func doNull(env *Env, node *Node) (*Node, error) {
 	if node.car.t == NodeNil {
 		return &Node{
 			t: NodeT,
-			v: true,
 		}, nil
 	}
 
@@ -1451,7 +1426,7 @@ func doMakeString(env *Env, node *Node) (*Node, error) {
 
 	return &Node{
 		t: NodeString,
-		v: strings.Repeat(" ", int(node.car.v.(int64))),
+		v: strings.Repeat(" ", int(node.car.iVal)),
 	}, nil
 }
 
@@ -1481,7 +1456,6 @@ func doConsp(env *Env, node *Node) (*Node, error) {
 	case NodeQuote, NodeBquote, NodeCell:
 		return &Node{
 			t: NodeT,
-			v: true,
 		}, nil
 	}
 	return &Node{
@@ -1538,14 +1512,13 @@ func doOddp(env *Env, node *Node) (*Node, error) {
 	var b bool
 	switch node.car.t {
 	case NodeInt:
-		b = node.car.v.(int64)%2 != 0
+		b = node.car.iVal%2 != 0
 	case NodeDouble:
-		b = int64(node.car.v.(float64))%2 != 0
+		b = int64(node.car.fVal)%2 != 0
 	}
 	if b {
 		return &Node{
 			t: NodeT,
-			v: true,
 		}, nil
 	}
 	return &Node{
@@ -1561,14 +1534,13 @@ func doEvenp(env *Env, node *Node) (*Node, error) {
 	var b bool
 	switch node.car.t {
 	case NodeInt:
-		b = node.car.v.(int64)%2 == 0
+		b = node.car.iVal%2 == 0
 	case NodeDouble:
-		b = int64(node.car.v.(float64))%2 == 0
+		b = int64(node.car.fVal)%2 == 0
 	}
 	if b {
 		return &Node{
 			t: NodeT,
-			v: true,
 		}, nil
 	}
 	return &Node{
@@ -1650,7 +1622,7 @@ func doLabels(env *Env, node *Node) (*Node, error) {
 			cdr: vv.cdr,
 		}
 
-		scope.fncs[curr.car.car.v.(string)] = nn
+		scope.setFnc(curr.car.car.v.(string), nn)
 		curr = curr.cdr
 	}
 
@@ -1684,7 +1656,7 @@ func doFlet(env *Env, node *Node) (*Node, error) {
 			cdr: vv.cdr,
 		}
 
-		scope.fncs[curr.car.car.v.(string)] = nn
+		scope.setFnc(curr.car.car.v.(string), nn)
 		curr = curr.cdr
 	}
 
@@ -1830,7 +1802,7 @@ func doDefmacro(env *Env, node *Node) (*Node, error) {
 		global = global.env
 	}
 
-	global.mcrs[node.car.v.(string)] = nn
+	global.setMcr(node.car.v.(string), nn)
 
 	return nn, nil
 }
@@ -1877,10 +1849,10 @@ func doGoMethodCall(env *Env, node *Node) (rret *Node, rerr error) {
 			if arg.t == NodeGoValue {
 				rav = arg.v.(reflect.Value)
 				args = append(args, rav.Convert(at))
-			} else if arg.v == nil {
+			} else if arg.Value() == nil {
 				args = append(args, reflect.Zero(at))
 			} else {
-				rav = reflect.ValueOf(arg.v)
+				rav = reflect.ValueOf(arg.Value())
 				args = append(args, rav.Convert(at))
 			}
 			curr = curr.cdr
@@ -1996,9 +1968,9 @@ func doGoMakeChan(env *Env, node *Node) (*Node, error) {
 	size := 0
 	if node.car.car != nil {
 		if node.car.car.t != NodeInt {
-			return nil, fmt.Errorf("invalid size name: %v", node.car.car.v)
+			return nil, fmt.Errorf("invalid size name: %v", node.car.car.Value())
 		}
-		size = int(node.car.car.v.(int64))
+		size = int(node.car.car.iVal)
 	}
 	return &Node{
 		t: NodeGoValue,
@@ -2024,7 +1996,7 @@ func doGoChanSend(env *Env, node *Node) (rret *Node, rerr error) {
 	if node.cdr.car.t == NodeGoValue {
 		rv = node.cdr.car.v.(reflect.Value)
 	} else {
-		rv = reflect.ValueOf(node.cdr.car.v)
+		rv = reflect.ValueOf(node.cdr.car.Value())
 	}
 
 	ch.Send(rv)
@@ -2050,7 +2022,6 @@ func doGoChanRecv(env *Env, node *Node) (rret *Node, rerr error) {
 	if ok {
 		res = &Node{
 			t: NodeT,
-			v: true,
 		}
 	} else {
 		res = &Node{
