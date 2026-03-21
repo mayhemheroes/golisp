@@ -1254,51 +1254,6 @@ func doCdr(env *Env, node *Node) (*Node, error) {
 	return curr, nil
 }
 
-func doFirst(env *Env, node *Node) (*Node, error) {
-	if node.car == nil || node.car.car == nil {
-		return &Node{
-			t: NodeNil,
-		}, nil
-	}
-	if node.car.t == NodeQuote {
-		return &Node{
-			t: NodeIdent,
-			v: "quote",
-		}, nil
-	}
-	return node.car.car, nil
-}
-
-func doSecond(env *Env, node *Node) (*Node, error) {
-	if node.car == nil || node.car.car == nil || node.car.car.car == nil {
-		return &Node{
-			t: NodeNil,
-		}, nil
-	}
-	if node.car.t == NodeQuote {
-		return &Node{
-			t: NodeIdent,
-			v: "quote",
-		}, nil
-	}
-	return node.car.car.car, nil
-}
-
-func doThird(env *Env, node *Node) (*Node, error) {
-	if node.car == nil || node.car.car == nil || node.car.car.car == nil || node.car.car.car.car == nil {
-		return &Node{
-			t: NodeNil,
-		}, nil
-	}
-	if node.car.t == NodeQuote {
-		return &Node{
-			t: NodeIdent,
-			v: "quote",
-		}, nil
-	}
-	return node.car.car.car.car, nil
-}
-
 func doApply(env *Env, node *Node) (*Node, error) {
 	if node.car == nil || node.cdr == nil || node.cdr.car == nil {
 		return nil, errors.New("invalid arguments for apply")
@@ -1335,13 +1290,6 @@ func doApply(env *Env, node *Node) (*Node, error) {
 		cdr: head,
 	}
 	return call(env, vv)
-}
-
-func doAref(env *Env, node *Node) (*Node, error) {
-	return &Node{
-		t:   NodeAref,
-		car: node.car,
-	}, nil
 }
 
 func doConcatenate(env *Env, node *Node) (*Node, error) {
