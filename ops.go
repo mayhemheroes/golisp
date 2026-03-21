@@ -1103,44 +1103,34 @@ func doMod(env *Env, node *Node) (*Node, error) {
 	}, nil
 }
 
+func isTruthy(n *Node) bool {
+	switch n.t {
+	case NodeInt:
+		return n.v.(int64) != 0
+	case NodeDouble:
+		return n.v.(float64) != 0
+	case NodeT:
+		return true
+	}
+	return false
+}
+
 func doAnd(env *Env, node *Node) (*Node, error) {
 	lhs, err := eval(env, node.car)
 	if err != nil {
 		return nil, err
 	}
+	if !isTruthy(lhs) {
+		return &Node{t: NodeNil}, nil
+	}
 	rhs, err := eval(env, node.cdr.car)
 	if err != nil {
 		return nil, err
 	}
-
-	var b1, b2 bool
-	switch lhs.t {
-	case NodeInt:
-		b1 = lhs.v.(int64) != 0
-	case NodeDouble:
-		b1 = lhs.v.(float64) != 0
-	case NodeT:
-		b1 = true
+	if !isTruthy(rhs) {
+		return &Node{t: NodeNil}, nil
 	}
-	switch rhs.t {
-	case NodeInt:
-		b2 = rhs.v.(int64) != 0
-	case NodeDouble:
-		b2 = rhs.v.(float64) != 0
-	case NodeT:
-		b2 = true
-	}
-
-	if b1 && b2 {
-		return &Node{
-			t: NodeT,
-			v: true,
-		}, nil
-	}
-
-	return &Node{
-		t: NodeNil,
-	}, nil
+	return &Node{t: NodeT, v: true}, nil
 }
 
 func doOr(env *Env, node *Node) (*Node, error) {
@@ -1148,39 +1138,17 @@ func doOr(env *Env, node *Node) (*Node, error) {
 	if err != nil {
 		return nil, err
 	}
+	if isTruthy(lhs) {
+		return &Node{t: NodeT, v: true}, nil
+	}
 	rhs, err := eval(env, node.cdr.car)
 	if err != nil {
 		return nil, err
 	}
-
-	var b1, b2 bool
-	switch lhs.t {
-	case NodeInt:
-		b1 = lhs.v.(int64) != 0
-	case NodeDouble:
-		b1 = lhs.v.(float64) != 0
-	case NodeT:
-		b1 = true
+	if isTruthy(rhs) {
+		return &Node{t: NodeT, v: true}, nil
 	}
-	switch rhs.t {
-	case NodeInt:
-		b2 = rhs.v.(int64) != 0
-	case NodeDouble:
-		b2 = rhs.v.(float64) != 0
-	case NodeT:
-		b2 = true
-	}
-
-	if b1 || b2 {
-		return &Node{
-			t: NodeT,
-			v: true,
-		}, nil
-	}
-
-	return &Node{
-		t: NodeNil,
-	}, nil
+	return &Node{t: NodeNil}, nil
 }
 
 func doCond(env *Env, node *Node) (*Node, error) {

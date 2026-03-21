@@ -1,0 +1,6 @@
+(setq x 0)
+(and nil (setq x 1))
+(print x)
+(setq y 0)
+(or t (setq y 1))
+(print y)
