@@ -1034,7 +1034,7 @@ func doLe(env *Env, node *Node) (*Node, error) {
 	}, nil
 }
 func doIf(env *Env, node *Node) (*Node, error) {
-	if node.car == nil || node.car.cdr == nil {
+	if node.car == nil || node.cdr == nil {
 		return nil, errors.New("invalid arguments for if")
 	}
 
@@ -1054,26 +1054,14 @@ func doIf(env *Env, node *Node) (*Node, error) {
 	}
 
 	if b {
-		if node.car.cdr != nil {
-			v, err = eval(env, node.cdr.car)
-			if err != nil {
-				return nil, err
-			}
-		} else {
-			return &Node{
-				t: NodeT,
-			}, nil
+		v, err = eval(env, node.cdr.car)
+		if err != nil {
+			return nil, err
 		}
-	} else if node.cdr != nil && node.cdr.cdr != nil {
-		if node.cdr != nil && node.cdr.cdr != nil {
-			v, err = eval(env, node.cdr.cdr.car)
-			if err != nil {
-				return nil, err
-			}
-		} else {
-			return &Node{
-				t: NodeNil,
-			}, nil
+	} else if node.cdr.cdr != nil {
+		v, err = eval(env, node.cdr.cdr.car)
+		if err != nil {
+			return nil, err
 		}
 	}
 	return v, nil
