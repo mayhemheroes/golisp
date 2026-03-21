@@ -165,36 +165,34 @@ func (e *Env) Eval(node *Node) (*Node, error) {
 }
 
 func evalList(env *Env, node *Node) (*Node, error) {
-	var head, prev *Node
+	// Count arguments
+	n := 0
+	for c := node; c != nil && c.car != nil; c = c.cdr {
+		n++
+	}
+	if n == 0 {
+		return &Node{t: NodeNil}, nil
+	}
+
+	// Allocate all wrapper cells in one batch
+	cells := make([]Node, n)
 	curr := node
-	for curr != nil && curr.car != nil {
+	for i := 0; i < n; i++ {
 		vv, err := eval(env, curr.car)
 		if err != nil {
 			return nil, err
 		}
 		if vv == nil {
-			vv = &Node{
-				t: NodeNil,
-			}
+			vv = &Node{t: NodeNil}
 		}
-		vvv := &Node{
-			t:   NodeCell,
-			car: vv,
+		cells[i].t = NodeCell
+		cells[i].car = vv
+		if i > 0 {
+			cells[i-1].cdr = &cells[i]
 		}
-		if prev != nil {
-			prev.cdr = vvv
-		} else {
-			head = vvv
-		}
-		prev = vvv
 		curr = curr.cdr
 	}
-	if head == nil {
-		return &Node{
-			t: NodeNil,
-		}, nil
-	}
-	return head, nil
+	return &cells[0], nil
 }
 
 func call(env *Env, node *Node) (*Node, error) {
