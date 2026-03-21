@@ -52,7 +52,7 @@ func TestOps(t *testing.T) {
 		}
 		want := string(b)
 		if diff := cmp.Diff(want, got); diff != "" {
-			t.Errorf(diff)
+			t.Errorf("%s", diff)
 		}
 	}
 }

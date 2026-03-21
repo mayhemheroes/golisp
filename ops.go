@@ -1,6 +1,6 @@
 package golisp
 
-//go:genearte stringer -t nodetype .
+//go:generate stringer -t nodetype .
 
 import (
 	"bytes"
@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	"github.com/mattn/golisp/gopkg"
-	_ "github.com/mattn/golisp/statik"
 )
 
 type Ft int
@@ -414,7 +413,7 @@ func doPrin1(env *Env, node *Node) (*Node, error) {
 	if node.car.t == NodeNil {
 		fmt.Fprint(env.out, "nil")
 	} else {
-		fmt.Fprintln(env.out, node.car.v)
+		fmt.Fprint(env.out, node.car.v)
 	}
 	return node.car, nil
 }

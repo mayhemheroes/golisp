@@ -1,45 +1,32 @@
 package golisp
 
 import (
-	"path"
-
-	"github.com/rakyll/statik/fs"
+	"embed"
+	"io/fs"
+	"strings"
 )
 
-//go:generate statik -src=lib
+//go:embed lib/*.lisp
+var libFS embed.FS
 
 func LoadLib(env *Env) error {
-	statikFS, err := fs.New()
+	entries, err := fs.ReadDir(libFS, "lib")
 	if err != nil {
 		return err
 	}
-	dir, err := statikFS.Open("/")
-	if err != nil {
-		return err
-	}
-	defer dir.Close()
-
-	fis, err := dir.Readdir(-1)
-	if err != nil {
-		return err
-	}
-	for _, fi := range fis {
-		f, err := statikFS.Open(path.Join("/", fi.Name()))
+	for _, entry := range entries {
+		b, err := libFS.ReadFile("lib/" + entry.Name())
 		if err != nil {
 			return err
 		}
-		node, err := NewParser(f).Parse()
+		node, err := NewParser(strings.NewReader(string(b))).Parse()
 		if err != nil {
-			f.Close()
 			return err
 		}
 		_, err = env.Eval(node)
 		if err != nil {
-			f.Close()
 			return err
 		}
-		f.Close()
 	}
-
 	return nil
 }
