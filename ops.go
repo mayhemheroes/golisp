@@ -2099,10 +2099,6 @@ func doGoChanSend(env *Env, node *Node) (rret *Node, rerr error) {
 		}()
 	*/
 	if node.car == nil || node.cdr == nil || node.cdr.car == nil || node.car.t != NodeGoValue {
-		fmt.Println(node.car)
-		fmt.Println(node.car.cdr)
-		fmt.Println(node.car.cdr.car)
-		fmt.Println(node.car.t)
 		return nil, errors.New("invalid arguments for go:chan-send")
 	}
 
@@ -2110,14 +2106,14 @@ func doGoChanSend(env *Env, node *Node) (rret *Node, rerr error) {
 
 	var rv reflect.Value
 	if node.cdr.car.t == NodeGoValue {
-		rv = node.car.car.v.(reflect.Value)
+		rv = node.cdr.car.v.(reflect.Value)
 	} else {
 		rv = reflect.ValueOf(node.cdr.car.v)
 	}
 
 	ch.Send(rv)
 
-	return node.car.car, nil
+	return node.cdr.car, nil
 }
 
 func doGoChanRecv(env *Env, node *Node) (rret *Node, rerr error) {
