@@ -104,18 +104,27 @@ type Env struct {
 	fncs map[string]*Node
 	mcrs map[string]*Node
 	env  *Env
+	root *Env
 	out  io.Writer
 }
 
 func NewEnv(env *Env) *Env {
 	var out io.Writer = os.Stdout
+	var root *Env
 	if env != nil {
 		out = env.out
+		root = env.root
 	}
-	return &Env{
+	e := &Env{
 		env: env,
 		out: out,
 	}
+	if root != nil {
+		e.root = root
+	} else {
+		e.root = e
+	}
+	return e
 }
 
 func (e *Env) setVar(name string, n *Node) {
@@ -171,7 +180,7 @@ func evalList(env *Env, node *Node) (*Node, error) {
 		n++
 	}
 	if n == 0 {
-		return &Node{t: NodeNil}, nil
+		return nodeNil, nil
 	}
 
 	// Allocate all wrapper cells in one batch
@@ -183,7 +192,7 @@ func evalList(env *Env, node *Node) (*Node, error) {
 			return nil, err
 		}
 		if vv == nil {
-			vv = &Node{t: NodeNil}
+			vv = nodeNil
 		}
 		cells[i].t = NodeCell
 		cells[i].car = vv
@@ -193,6 +202,57 @@ func evalList(env *Env, node *Node) (*Node, error) {
 		curr = curr.cdr
 	}
 	return &cells[0], nil
+}
+
+func invokeLambda(env, closure *Env, params, body, args *Node, macro bool) (*Node, error) {
+	scope := NewEnv(closure)
+
+	arg := params
+	val := args
+	for arg != nil && arg.t != NodeNil {
+		var name string
+		if arg.car != nil {
+			name = arg.car.v.(string)
+		} else {
+			name = arg.v.(string)
+		}
+		var vv *Node
+		var err error
+		if name == "&rest" {
+			arg = arg.cdr
+			name = arg.car.v.(string)
+			vv, err = evalList(env, val)
+		} else if macro {
+			if val == nil {
+				vv = nodeNil
+			} else {
+				vv = val.car
+			}
+		} else if arg.car == nil {
+			vv, err = evalList(env, val)
+		} else {
+			vv, err = eval(env, val.car)
+		}
+		if err != nil {
+			return nil, err
+		}
+		scope.setVar(name, vv)
+		arg = arg.cdr
+		if val != nil {
+			val = val.cdr
+		}
+	}
+
+	var ret *Node
+	var err error
+	for body != nil && body.car != nil {
+		ret, err = eval(scope, body.car)
+		if err != nil {
+			return nil, err
+		}
+		body = body.cdr
+	}
+	return ret, nil
 }
 
 func call(env *Env, node *Node) (*Node, error) {
@@ -220,11 +280,7 @@ func call(env *Env, node *Node) (*Node, error) {
 			e = e.env
 		}
 		if fn == nil {
-			global := env
-			for global.env != nil {
-				global = global.env
-			}
-			fn, ok = global.mcrs[name]
+			fn, ok = env.root.mcrs[name]
 			if ok {
 				alist = node.cdr
 				macro = true
@@ -233,7 +289,7 @@ func call(env *Env, node *Node) (*Node, error) {
 				return nil, fmt.Errorf("invalid op: %v", name)
 			}
 		}
-		if !macro && fn.t != NodeLambda {
+		if !macro && fn.t != NodeLambda && fn.t != NodeEnv {
 			ev := &Node{
 				t:   NodeCell,
 				car: fn,
@@ -241,40 +297,20 @@ func call(env *Env, node *Node) (*Node, error) {
 			}
 			return eval(env, ev)
 		}
-		if macro {
-			node = &Node{
-				t: NodeCell,
-				car: &Node{
-					t:   NodeEnv,
-					v:   name,
-					e:   fn.e,
-					cdr: fn.cdr,
-				},
-				cdr: node.cdr,
+		switch fn.t {
+		case NodeLambda:
+			return invokeLambda(env, fn.e, fn.car, fn.cdr, alist, macro)
+		case NodeEnv:
+			if fn.car != nil {
+				return invokeLambda(env, fn.e, fn.car, fn.cdr, alist, macro)
 			}
-		} else {
-			node = &Node{
-				t: NodeCell,
-				car: &Node{
-					t:   NodeEnv,
-					v:   name,
-					e:   fn.e,
-					cdr: fn,
-				},
-				cdr: node.cdr,
+			if fn.cdr == nil {
+				return nodeNil, nil
 			}
+			return invokeLambda(env, fn.e, fn.cdr.car, fn.cdr.cdr, alist, macro)
 		}
 	} else if node.car != nil && node.car.t == NodeLambda {
-		node = &Node{
-			t: NodeCell,
-			car: &Node{
-				t:   NodeEnv,
-				e:   node.car.e,
-				car: node.car,
-				cdr: node.car,
-			},
-			cdr: node.cdr,
-		}
+		return invokeLambda(env, node.car.e, node.car.car, node.car.cdr, node.cdr, false)
 	}
 
 	if node.car == nil || node.car.t != NodeEnv {
@@ -355,11 +391,7 @@ func eval(env *Env, node *Node) (*Node, error) {
 			e = e.env
 		}
 
-		e = env
-		for e.env != nil {
-			e = e.env
-		}
-		v, ok := e.fncs[name]
+		v, ok := env.root.fncs[name]
 		if ok {
 			return v, nil
 		}
@@ -367,9 +399,7 @@ func eval(env *Env, node *Node) (*Node, error) {
 		return nil, fmt.Errorf("undefined symbol: %v", node.v)
 	case NodeCell:
 		if node.car == nil {
-			return &Node{
-				t: NodeNil,
-			}, nil
+			return nodeNil, nil
 		}
 		if node.car.t == NodeIdent {
 			ft, ok := ops[node.car.v.(string)]
@@ -521,9 +551,7 @@ func doDotimes(env *Env, node *Node) (*Node, error) {
 		return eval(scope, node.car.cdr.cdr.car)
 	}
 
-	return &Node{
-		t: NodeNil,
-	}, nil
+	return nodeNil, nil
 }
 
 func doLet(env *Env, node *Node) (*Node, error) {
@@ -531,9 +559,7 @@ func doLet(env *Env, node *Node) (*Node, error) {
 		return nil, errors.New("invalid arguments for let")
 	}
 	if node.car.t == NodeNil {
-		return &Node{
-			t: NodeNil,
-		}, nil
+		return nodeNil, nil
 	}
 	scope := NewEnv(env)
 
@@ -584,9 +610,7 @@ func doLetStar(env *Env, node *Node) (*Node, error) {
 		return nil, errors.New("invalid arguments for let")
 	}
 	if node.car.t == NodeNil {
-		return &Node{
-			t: NodeNil,
-		}, nil
+		return nodeNil, nil
 	}
 	scope := NewEnv(env)
 
@@ -904,14 +928,10 @@ func doEqual(env *Env, node *Node) (*Node, error) {
 	}
 
 	if b {
-		return &Node{
-			t: NodeT,
-		}, nil
+		return nodeT, nil
 	}
 
-	return &Node{
-		t: NodeNil,
-	}, nil
+	return nodeNil, nil
 }
 
 func doGt(env *Env, node *Node) (*Node, error) {
@@ -933,14 +953,10 @@ func doGt(env *Env, node *Node) (*Node, error) {
 	}
 
 	if f1 > f2 {
-		return &Node{
-			t: NodeT,
-		}, nil
+		return nodeT, nil
 	}
 
-	return &Node{
-		t: NodeNil,
-	}, nil
+	return nodeNil, nil
 }
 
 func doGe(env *Env, node *Node) (*Node, error) {
@@ -962,14 +978,10 @@ func doGe(env *Env, node *Node) (*Node, error) {
 	}
 
 	if f1 >= f2 {
-		return &Node{
-			t: NodeT,
-		}, nil
+		return nodeT, nil
 	}
 
-	return &Node{
-		t: NodeNil,
-	}, nil
+	return nodeNil, nil
 }
 
 func doLt(env *Env, node *Node) (*Node, error) {
@@ -991,14 +1003,10 @@ func doLt(env *Env, node *Node) (*Node, error) {
 	}
 
 	if f1 < f2 {
-		return &Node{
-			t: NodeT,
-		}, nil
+		return nodeT, nil
 	}
 
-	return &Node{
-		t: NodeNil,
-	}, nil
+	return nodeNil, nil
 }
 
 func doLe(env *Env, node *Node) (*Node, error) {
@@ -1020,14 +1028,10 @@ func doLe(env *Env, node *Node) (*Node, error) {
 	}
 
 	if f1 <= f2 {
-		return &Node{
-			t: NodeT,
-		}, nil
+		return nodeT, nil
 	}
 
-	return &Node{
-		t: NodeNil,
-	}, nil
+	return nodeNil, nil
 }
 func doIf(env *Env, node *Node) (*Node, error) {
 	if node.car == nil || node.cdr == nil {
@@ -1055,13 +1059,9 @@ func doIf(env *Env, node *Node) (*Node, error) {
 
 func doNot(env *Env, node *Node) (*Node, error) {
 	if node.car == nil || node.car.t == NodeNil {
-		return &Node{
-			t: NodeT,
-		}, nil
+		return nodeT, nil
 	}
-	return &Node{
-		t: NodeNil,
-	}, nil
+	return nodeNil, nil
 }
 
 func doMod(env *Env, node *Node) (*Node, error) {
@@ -1106,16 +1106,16 @@ func doAnd(env *Env, node *Node) (*Node, error) {
 		return nil, err
 	}
 	if !isTruthy(lhs) {
-		return &Node{t: NodeNil}, nil
+		return nodeNil, nil
 	}
 	rhs, err := eval(env, node.cdr.car)
 	if err != nil {
 		return nil, err
 	}
 	if !isTruthy(rhs) {
-		return &Node{t: NodeNil}, nil
+		return nodeNil, nil
 	}
-	return &Node{t: NodeT}, nil
+	return nodeT, nil
 }
 
 func doOr(env *Env, node *Node) (*Node, error) {
@@ -1124,16 +1124,16 @@ func doOr(env *Env, node *Node) (*Node, error) {
 		return nil, err
 	}
 	if isTruthy(lhs) {
-		return &Node{t: NodeT}, nil
+		return nodeT, nil
 	}
 	rhs, err := eval(env, node.cdr.car)
 	if err != nil {
 		return nil, err
 	}
 	if isTruthy(rhs) {
-		return &Node{t: NodeT}, nil
+		return nodeT, nil
 	}
-	return &Node{t: NodeNil}, nil
+	return nodeNil, nil
 }
 
 func doCond(env *Env, node *Node) (*Node, error) {
@@ -1343,12 +1343,7 @@ func doDefun(env *Env, node *Node) (*Node, error) {
 	}
 	v.cdr = node.cdr
 
-	global := env
-	for global.env != nil {
-		global = global.env
-	}
-
-	global.setFnc(node.car.v.(string), v)
+	env.root.setFnc(node.car.v.(string), v)
 	return v, nil
 }
 
@@ -1407,14 +1402,10 @@ func doNull(env *Env, node *Node) (*Node, error) {
 		return nil, errors.New("invalid arguments for length")
 	}
 	if node.car.t == NodeNil {
-		return &Node{
-			t: NodeT,
-		}, nil
+		return nodeT, nil
 	}
 
-	return &Node{
-		t: NodeNil,
-	}, nil
+	return nodeNil, nil
 }
 
 func doMakeString(env *Env, node *Node) (*Node, error) {
@@ -1452,13 +1443,9 @@ func doEval(env *Env, node *Node) (*Node, error) {
 func doConsp(env *Env, node *Node) (*Node, error) {
 	switch node.car.t {
 	case NodeQuote, NodeBquote, NodeCell:
-		return &Node{
-			t: NodeT,
-		}, nil
+		return nodeT, nil
 	}
-	return &Node{
-		t: NodeNil,
-	}, nil
+	return nodeNil, nil
 }
 
 func doLoad(env *Env, node *Node) (*Node, error) {
@@ -1515,13 +1502,9 @@ func doOddp(env *Env, node *Node) (*Node, error) {
 		b = int64(node.car.fVal)%2 != 0
 	}
 	if b {
-		return &Node{
-			t: NodeT,
-		}, nil
+		return nodeT, nil
 	}
-	return &Node{
-		t: NodeNil,
-	}, nil
+	return nodeNil, nil
 }
 
 func doEvenp(env *Env, node *Node) (*Node, error) {
@@ -1537,13 +1520,9 @@ func doEvenp(env *Env, node *Node) (*Node, error) {
 		b = int64(node.car.fVal)%2 == 0
 	}
 	if b {
-		return &Node{
-			t: NodeT,
-		}, nil
+		return nodeT, nil
 	}
-	return &Node{
-		t: NodeNil,
-	}, nil
+	return nodeNil, nil
 }
 
 func doTypeOf(env *Env, node *Node) (*Node, error) {
@@ -1795,12 +1774,7 @@ func doDefmacro(env *Env, node *Node) (*Node, error) {
 		cdr: node.cdr,
 	}
 
-	global := env
-	for global.env != nil {
-		global = global.env
-	}
-
-	global.setMcr(node.car.v.(string), nn)
+	env.root.setMcr(node.car.v.(string), nn)
 
 	return nn, nil
 }

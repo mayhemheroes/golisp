@@ -260,14 +260,10 @@ func (p *Parser) ParsePrimitive() (*Node, error) {
 	s := buf.String()
 
 	if s == "nil" {
-		return &Node{
-			t: NodeNil,
-		}, nil
+		return nodeNil, nil
 	}
 	if s == "t" {
-		return &Node{
-			t: NodeT,
-		}, nil
+		return nodeT, nil
 	}
 	if i, err := strconv.ParseInt(s, 10, 64); err == nil {
 		return &Node{
