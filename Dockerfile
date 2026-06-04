@@ -1,5 +1,7 @@
 # Build Stage:
-FROM golang:1.18 as builder
+FROM golang:1.22 AS builder
+
+ENV GOTOOLCHAIN=auto
 
 ## Install build dependencies.
 RUN apt-get update && \
